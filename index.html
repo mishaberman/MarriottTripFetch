@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marriott Trip Extractor - Chrome Extension</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #0056d0;
+        }
+        .header h1 {
+            color: #0056d0;
+            margin-bottom: 10px;
+        }
+        .step {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #0056d0;
+        }
+        .step h3 {
+            margin-top: 0;
+            color: #0056d0;
+        }
+        .code {
+            background: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .debug-section {
+            background: #f1f3f4;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 30px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Marriott Trip Extractor</h1>
+        <p>Chrome Extension for automatically extracting reservation details from your Marriott account</p>
+    </div>
+
+    <div class="step">
+        <h3>Step 1: Load Extension in Chrome</h3>
+        <ol>
+            <li>Open Chrome and go to <code>chrome://extensions/</code></li>
+            <li>Enable "Developer mode" (toggle in top right)</li>
+            <li>Click "Load unpacked"</li>
+            <li>Select the folder containing these extension files</li>
+            <li>The extension should appear in your Chrome toolbar</li>
+        </ol>
+    </div>
+
+    <div class="step">
+        <h3>Step 2: Usage</h3>
+        <ol>
+            <li>Log into your Marriott account at marriott.com</li>
+            <li>Click the extension icon in your toolbar</li>
+            <li>Click "Extract Reservations"</li>
+            <li>Wait for the extraction to complete</li>
+            <li>View your extracted reservations in the popup</li>
+        </ol>
+    </div>
+
+    <div class="warning">
+        <strong>Troubleshooting Login Issues:</strong><br>
+        If you're getting "Please log in to your Marriott account first" even though you're logged in, this is likely due to changes in Marriott's website structure. Follow the debugging steps below.
+    </div>
+
+    <div class="debug-section">
+        <h3>🔧 Debugging Steps</h3>
+        
+        <p><strong>1. Check Browser Console:</strong></p>
+        <ul>
+            <li>Open Developer Tools (F12 or right-click → Inspect)</li>
+            <li>Go to the Console tab</li>
+            <li>Try extracting reservations</li>
+            <li>Look for messages starting with 🔍, ✅, or ❌</li>
+        </ul>
+
+        <p><strong>2. Manual Login Check:</strong></p>
+        <p>Copy and paste this code in the browser console while on marriott.com:</p>
+        <div class="code">
+// Debug login detection
+console.log('=== LOGIN DEBUG ===');
+console.log('URL:', window.location.href);
+
+// Check for account-related elements
+const accountElements = document.querySelectorAll('[class*="account"], [class*="profile"], [class*="member"], [data-testid*="account"]');
+console.log('Account elements found:', accountElements.length);
+accountElements.forEach((el, i) => {
+    console.log(`  ${i+1}:`, el.className, '-', el.textContent?.substring(0, 50));
+});
+
+// Check for sign out links
+const signOutElements = Array.from(document.querySelectorAll('a, button')).filter(el => 
+    el.textContent.toLowerCase().includes('sign out') || 
+    el.textContent.toLowerCase().includes('logout')
+);
+console.log('Sign out elements:', signOutElements.length);
+
+// Check for sign in elements (should be 0 if logged in)
+const signInElements = Array.from(document.querySelectorAll('a, button')).filter(el => 
+    el.textContent.toLowerCase().includes('sign in') || 
+    el.textContent.toLowerCase().includes('login')
+);
+console.log('Sign in elements:', signInElements.length);
+
+console.log('=== END DEBUG ===');
+        </div>
+
+        <p><strong>3. Check Extension Permissions:</strong></p>
+        <ul>
+            <li>Go to <code>chrome://extensions/</code></li>
+            <li>Find "Marriott Trip Extractor"</li>
+            <li>Click "Details"</li>
+            <li>Ensure it has permission to access marriott.com</li>
+        </ul>
+
+        <p><strong>4. Reload Extension:</strong></p>
+        <ul>
+            <li>Go to <code>chrome://extensions/</code></li>
+            <li>Click the reload button for "Marriott Trip Extractor"</li>
+            <li>Refresh the Marriott page</li>
+            <li>Try extracting again</li>
+        </ul>
+    </div>
+
+    <div class="step">
+        <h3>Features</h3>
+        <p>The extension extracts the following information from your Marriott reservations:</p>
+        <ul>
+            <li>Hotel name and location</li>
+            <li>Check-in and check-out dates</li>
+            <li>Total cost and price per night</li>
+            <li>Number of nights</li>
+            <li>Confirmation number</li>
+            <li>Points used (if any)</li>
+            <li>Promo codes applied</li>
+            <li>Room type</li>
+        </ul>
+    </div>
+
+    <div class="step">
+        <h3>Export Data</h3>
+        <p>Once extraction is complete, you can:</p>
+        <ul>
+            <li>View reservations in the popup interface</li>
+            <li>Export data as JSON file</li>
+            <li>Clear stored data when needed</li>
+        </ul>
+    </div>
+</body>
+</html>

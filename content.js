@@ -20,10 +20,20 @@
         try {
             sendProgress(10, 'Checking login status...');
             
+            console.log('🚀 Starting reservation extraction...');
+            console.log('📍 Current URL:', window.location.href);
+            console.log('🌐 Domain:', window.location.hostname);
+            
             // Check if user is logged in
-            if (!isLoggedIn()) {
-                throw new Error('Please log in to your Marriott account first.');
+            const loginStatus = isLoggedIn();
+            console.log('🔑 Login status result:', loginStatus);
+            
+            if (!loginStatus) {
+                console.log('❌ Login check failed - throwing error');
+                throw new Error('Please log in to your Marriott account first. Check browser console for debugging details.');
             }
+            
+            console.log('✅ Login check passed - continuing extraction');
 
             sendProgress(20, 'Navigating to reservations...');
             
@@ -73,10 +83,109 @@
             '.my-account',
             '[aria-label*="Account"]',
             '.sign-out',
-            '.logout'
+            '.logout',
+            '[data-testid*="account"]',
+            '[data-testid*="profile"]',
+            '[data-testid*="user"]',
+            '.header-account',
+            '.account-dropdown',
+            '.user-menu',
+            'a[href*="account"]',
+            'a[href*="profile"]',
+            '.member-name',
+            '.welcome',
+            '[class*="account"]',
+            '[class*="profile"]',
+            '[class*="member"]',
+            'button[aria-label*="account" i]',
+            'button[aria-label*="profile" i]',
+            '.signin-out', // Marriott specific
+            '.account-signin-out' // Marriott specific
         ];
 
-        return loginIndicators.some(selector => document.querySelector(selector));
+        console.log('🔍 Checking login status...');
+        
+        // Debug: log all potential login elements found
+        let foundElements = [];
+        loginIndicators.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            if (elements.length > 0) {
+                foundElements.push({
+                    selector: selector,
+                    count: elements.length,
+                    text: Array.from(elements).map(el => el.textContent?.trim()).filter(Boolean)
+                });
+            }
+        });
+        
+        if (foundElements.length > 0) {
+            console.log('✅ Found potential login indicators:', foundElements);
+        } else {
+            console.log('❌ No login indicators found');
+            
+            // Additional debugging - check for any text that might indicate login
+            const bodyText = document.body.textContent.toLowerCase();
+            const loginKeywords = ['sign out', 'logout', 'my account', 'welcome back', 'member', 'profile'];
+            const foundKeywords = loginKeywords.filter(keyword => bodyText.includes(keyword));
+            
+            if (foundKeywords.length > 0) {
+                console.log('📝 Found login-related text:', foundKeywords);
+            }
+            
+            // Check for text-based indicators
+            const textIndicators = checkTextBasedLogin();
+            if (textIndicators.length > 0) {
+                console.log('📝 Found text-based login indicators:', textIndicators);
+                return true; // If we find text indicators, consider logged in
+            }
+            
+            // Check for absence of login/signin buttons (which might indicate already logged in)
+            const signInLinks = Array.from(document.querySelectorAll('a')).filter(a => 
+                a.textContent.toLowerCase().includes('sign in') || 
+                a.textContent.toLowerCase().includes('login')
+            );
+            const signInButtons = Array.from(document.querySelectorAll('button')).filter(btn => 
+                btn.textContent.toLowerCase().includes('sign in') || 
+                btn.textContent.toLowerCase().includes('login')
+            );
+            
+            console.log('🔐 Sign in links found:', signInLinks.length);
+            console.log('🔐 Sign in buttons found:', signInButtons.length);
+            
+            // If no sign-in buttons/links found, might be logged in
+            if (signInLinks.length === 0 && signInButtons.length === 0) {
+                console.log('🤔 No sign-in elements found - might be logged in');
+                return true;
+            }
+        }
+
+        return foundElements.length > 0;
+    }
+
+    function checkTextBasedLogin() {
+        const indicators = [];
+        const bodyText = document.body.textContent.toLowerCase();
+        
+        // Look for text patterns that indicate user is logged in
+        const patterns = [
+            /welcome back/i,
+            /signed in as/i,
+            /logged in as/i,
+            /hello,?\s+\w+/i,
+            /my account/i,
+            /sign out/i,
+            /logout/i,
+            /member\s+\w+/i,
+            /points?[\s:]+[\d,]+/i // Points balance indicates logged in
+        ];
+        
+        patterns.forEach((pattern, index) => {
+            if (pattern.test(document.body.textContent)) {
+                indicators.push(`Pattern ${index + 1}: ${pattern.source}`);
+            }
+        });
+        
+        return indicators;
     }
 
     async function navigateToReservations() {
