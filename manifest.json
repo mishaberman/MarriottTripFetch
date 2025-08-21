@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Marriott Trip Extractor",
+  "version": "1.0",
+  "description": "Automatically extracts Marriott reservation details from your logged-in account",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://*.marriott.com/*",
+    "*://*.marriott.co.uk/*",
+    "*://*.marriott.ca/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.marriott.com/*",
+        "*://*.marriott.co.uk/*",
+        "*://*.marriott.ca/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Marriott Trip Extractor"
+  },
+  "icons": {
+    "16": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTggMUM0LjEzNDAxIDEgMSA0LjEzNDAxIDEgOEM1IDkuNzk1NDcgNS4xMDE5NSAxMS40MzAzIDUuMzc2NjkgMTIuNzgxMkw4IDhMTAuNjIzMyAxMi43ODEyQzEwLjg5ODEgMTEuNDMwMyAxMSA5Ljc5NTQ3IDExIDhDMTEgNC4xMzQwMSA3Ljg2NTk5IDEgOCAxWiIgZmlsbD0iIzAwNTZEMCIvPgo8L3N2Zz4K",
+    "32": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTE2IDJDOC4yNjgwMSAyIDIgOC4yNjgwMSAyIDE2QzIgMTkuNTkwOSAyLjIwMzkgMjIuODYwNiAyLjc1MzM4IDI1LjU2MjRMMTYgMTZMMjkuMjQ2NiAyNS41NjI0QzI5Ljc5NjEgMjIuODYwNiAzMCAxOS41OTA5IDMwIDE2QzMwIDguMjY4MDEgMjMuNzMyIDIgMTYgMloiIGZpbGw9IiMwMDU2RDAiLz4KPC9zdmc+Cg==",
+    "48": "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCA0OCA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTI0IDNDMTI40MDIgMyAzIDEyLjQwMiAzIDI0QzMgMjkuMzg2NCAzLjMwNTg1IDM0LjI5MDkgNC4xMzAwNyAzOC4zNDM2TDI0IDI0TDQzLjg2OTkgMzguMzQzNkM0NC42OTQyIDM0LjI5MDkgNDUgMjkuMzg2NCA0NSAyNEM0NSAxMi40MDIgMzUuNTk4IDMgMjQgM1oiIGZpbGw9IiMwMDU2RDAiLz4KPC9zdmc+Cg=="
+  }
+}

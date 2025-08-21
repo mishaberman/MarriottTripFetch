@@ -1,0 +1,32 @@
+// Background service worker for Marriott Trip Extractor
+chrome.runtime.onInstalled.addListener(() => {
+    console.log('Marriott Trip Extractor installed');
+});
+
+// Handle messages between popup and content scripts
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // Forward progress messages from content script to popup
+    if (message.action === 'progress' || 
+        message.action === 'extractionComplete' || 
+        message.action === 'extractionError') {
+        
+        // Broadcast to all popup instances
+        chrome.runtime.sendMessage(message);
+    }
+});
+
+// Handle tab updates to inject content script if needed
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' && 
+        tab.url && 
+        tab.url.includes('marriott.com')) {
+        
+        // Ensure content script is injected
+        chrome.scripting.executeScript({
+            target: { tabId: tabId },
+            files: ['content.js']
+        }).catch(() => {
+            // Content script might already be injected
+        });
+    }
+});
