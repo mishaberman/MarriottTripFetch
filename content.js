@@ -222,30 +222,461 @@
     async function extractReservationDataFromElements(foundElements) {
         const reservations = [];
         
-        sendDebug('info', `Processing ${foundElements.length} reservation elements...`);
-        const reservationElements = foundElements;
-
-        for (let i = 0; i < reservationElements.length; i++) {
-            const element = reservationElements[i];
+        sendDebug('info', `Found ${foundElements.length} potential reservation elements`);
+        
+        // First, try to find trip panels that need to be clicked
+        const tripPanels = await findTripPanels();
+        
+        if (tripPanels.length > 0) {
+            sendDebug('success', `Found ${tripPanels.length} trip panels to process`);
             
-            try {
-                // Extract reservation details from each element
-                const reservation = await extractSingleReservation(element);
+            for (let i = 0; i < tripPanels.length; i++) {
+                sendProgress(60 + (i * 30) / tripPanels.length, `Processing trip ${i + 1} of ${tripPanels.length}...`);
                 
-                if (reservation && reservation.hotelName) {
-                    // Filter out past reservations (only upcoming ones)
-                    if (isUpcomingReservation(reservation)) {
+                try {
+                    const reservation = await processTripPanel(tripPanels[i], i);
+                    if (reservation && reservation.hotelName) {
                         reservations.push(reservation);
+                        sendDebug('success', `Successfully extracted trip ${i + 1}: ${reservation.hotelName}`);
                     }
+                } catch (error) {
+                    sendDebug('error', `Failed to process trip ${i + 1}: ${error.message}`);
                 }
-            } catch (error) {
-                console.warn('Failed to extract reservation:', error);
+                
+                // Small delay between trips
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        } else {
+            // Fallback to basic extraction from found elements
+            sendDebug('warning', 'No trip panels found, trying basic extraction...');
+            
+            for (let i = 0; i < foundElements.length; i++) {
+                const element = foundElements[i];
+                
+                try {
+                    const reservation = await extractSingleReservation(element);
+                    
+                    if (reservation && reservation.hotelName) {
+                        if (isUpcomingReservation(reservation)) {
+                            reservations.push(reservation);
+                        }
+                    }
+                } catch (error) {
+                    sendDebug('warning', `Failed to extract from element ${i + 1}: ${error.message}`);
+                }
             }
         }
 
         return reservations;
     }
 
+    async function findTripPanels() {
+        sendDebug('info', 'Looking for clickable trip panels...');
+        
+        const selectors = [
+            '[class*="trip"]',
+            '[class*="reservation"]', 
+            '[class*="booking"]',
+            '[data-testid*="trip"]',
+            '[data-testid*="reservation"]',
+            '.accordion__heading',
+            'button[aria-expanded]',
+            '[role="button"]',
+            'div[onclick]',
+            'div[role="button"]'
+        ];
+        
+        let panels = [];
+        
+        for (const selector of selectors) {
+            const elements = document.querySelectorAll(selector);
+            for (const element of elements) {
+                const text = element.textContent.toLowerCase();
+                if ((text.includes('hotel') || text.includes('marriott')) && 
+                    (text.includes('check') || text.includes('night') || text.includes('reservation'))) {
+                    
+                    // Check if it looks like a clickable panel
+                    if (element.tagName === 'BUTTON' || 
+                        element.getAttribute('role') === 'button' ||
+                        element.onclick ||
+                        element.getAttribute('aria-expanded') !== null ||
+                        element.style.cursor === 'pointer') {
+                        
+                        panels.push(element);
+                        sendDebug('info', `Found clickable panel: ${text.substring(0, 100)}...`);
+                    }
+                }
+            }
+            
+            if (panels.length > 0) break;
+        }
+        
+        // Remove duplicates
+        panels = panels.filter((panel, index, self) => 
+            self.findIndex(p => p === panel) === index
+        );
+        
+        return panels.slice(0, 10); // Limit to 10 trips
+    }
+
+    async function processTripPanel(panel, index) {
+        sendDebug('info', `Processing trip panel ${index + 1}...`);
+        
+        try {
+            // Step 1: Click the panel to expand it
+            sendDebug('info', 'Clicking trip panel to expand...');
+            panel.click();
+            
+            // Wait for panel to expand
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Step 2: Look for View/Modify Room button
+            const viewButton = await findViewModifyButton(panel);
+            
+            if (viewButton) {
+                sendDebug('info', 'Found View/Modify Room button, clicking...');
+                
+                // Store current URL to navigate back later
+                const originalUrl = window.location.href;
+                
+                // Click the view/modify button
+                viewButton.click();
+                
+                // Wait for navigation to detailed page
+                await waitForNavigation(originalUrl);
+                
+                // Step 3: Extract detailed reservation data
+                const reservation = await extractDetailedReservationData();
+                
+                // Step 4: Navigate back to trips list
+                if (window.location.href !== originalUrl) {
+                    sendDebug('info', 'Navigating back to trips list...');
+                    window.history.back();
+                    await waitForPageLoad();
+                }
+                
+                return reservation;
+                
+            } else {
+                sendDebug('warning', 'No View/Modify Room button found, trying basic extraction...');
+                return await extractSingleReservation(panel);
+            }
+            
+        } catch (error) {
+            sendDebug('error', `Error processing trip panel: ${error.message}`);
+            return null;
+        }
+    }
+
+    async function findViewModifyButton(context = document) {
+        sendDebug('info', 'Looking for View/Modify Room button...');
+        
+        const buttonSelectors = [
+            'button:contains("View")',
+            'button:contains("Modify")', 
+            'a:contains("View")',
+            'a:contains("Modify")',
+            '[aria-label*="view" i]',
+            '[aria-label*="modify" i]',
+            '.view-button',
+            '.modify-button'
+        ];
+        
+        // Wait up to 5 seconds for the button to appear
+        for (let i = 0; i < 10; i++) {
+            for (const selector of buttonSelectors) {
+                const buttons = context.querySelectorAll('button, a, [role="button"]');
+                
+                for (const button of buttons) {
+                    const text = button.textContent.toLowerCase();
+                    const ariaLabel = button.getAttribute('aria-label')?.toLowerCase() || '';
+                    
+                    if (text.includes('view') || text.includes('modify') ||
+                        ariaLabel.includes('view') || ariaLabel.includes('modify')) {
+                        
+                        sendDebug('success', `Found button: "${button.textContent.trim()}"`);
+                        return button;
+                    }
+                }
+            }
+            
+            // Wait 500ms before trying again
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        sendDebug('warning', 'No View/Modify Room button found after 5 seconds');
+        return null;
+    }
+
+    async function waitForNavigation(originalUrl) {
+        sendDebug('info', 'Waiting for page navigation...');
+        
+        // Wait up to 10 seconds for navigation
+        for (let i = 0; i < 20; i++) {
+            if (window.location.href !== originalUrl) {
+                sendDebug('success', `Navigated to: ${window.location.href}`);
+                await waitForPageLoad();
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        sendDebug('warning', 'No navigation detected after 10 seconds');
+    }
+
+    async function extractDetailedReservationData() {
+        sendDebug('info', 'Extracting detailed reservation data from current page...');
+        
+        await waitForPageLoad();
+        
+        const reservation = {
+            extractedAt: new Date().toISOString(),
+            source: window.location.href,
+            detailedPage: true
+        };
+
+        // Extract hotel name
+        reservation.hotelName = extractText(document, [
+            'h1', 'h2',
+            '[class*="hotel"]',
+            '[class*="property"]',
+            '[data-testid*="hotel"]',
+            '.title'
+        ]) || extractHotelNameFromText(document);
+
+        // Extract confirmation number
+        reservation.confirmationNumber = extractText(document, [
+            '[class*="confirmation"]',
+            '[class*="number"]',
+            '[data-testid*="confirmation"]'
+        ]) || extractConfirmationFromText(document);
+
+        // Extract dates with more detail
+        const dates = extractDatesDetailed(document);
+        reservation.checkInDate = dates.checkIn;
+        reservation.checkOutDate = dates.checkOut;
+
+        // Calculate nights
+        if (dates.checkIn && dates.checkOut) {
+            const checkIn = new Date(dates.checkIn);
+            const checkOut = new Date(dates.checkOut);
+            const timeDiff = checkOut - checkIn;
+            reservation.nights = Math.ceil(timeDiff / (1000 * 60 * 60 * 24));
+        }
+
+        // Extract detailed costs and pricing
+        const costs = extractDetailedCosts(document);
+        reservation.totalCost = costs.total;
+        reservation.pricePerNight = costs.perNight;
+        reservation.baseRate = costs.baseRate;
+        reservation.taxes = costs.taxes;
+        reservation.fees = costs.fees;
+
+        // Extract points information
+        reservation.pointsUsed = extractDetailedPoints(document);
+        reservation.pointsEarned = extractPointsEarned(document);
+
+        // Extract promo code information
+        reservation.promoCode = extractDetailedPromoCode(document);
+
+        // Extract room type
+        reservation.roomType = extractText(document, [
+            '[class*="room"]',
+            '[data-testid*="room"]',
+            '.accommodation'
+        ]);
+
+        // Extract payment method
+        reservation.paymentMethod = extractPaymentMethod(document);
+
+        // Extract cancellation policy
+        reservation.cancellationPolicy = extractCancellationPolicy(document);
+
+        sendDebug('success', `Extracted detailed data for: ${reservation.hotelName}`);
+        return reservation;
+    }
+
+    function extractDatesDetailed(element) {
+        const dates = { checkIn: null, checkOut: null };
+        const text = element.textContent;
+
+        // Look for more detailed date selectors
+        const checkInSelectors = [
+            '[class*="check-in"]', '[class*="checkin"]', '[data-testid*="checkin"]',
+            '[class*="arrival"]', '[data-testid*="arrival"]',
+            '.date-in', '.arrival-date'
+        ];
+        const checkOutSelectors = [
+            '[class*="check-out"]', '[class*="checkout"]', '[data-testid*="checkout"]',
+            '[class*="departure"]', '[data-testid*="departure"]',
+            '.date-out', '.departure-date'
+        ];
+
+        dates.checkIn = extractText(element, checkInSelectors);
+        dates.checkOut = extractText(element, checkOutSelectors);
+
+        // Enhanced pattern matching
+        if (!dates.checkIn || !dates.checkOut) {
+            const patterns = [
+                /check.?in:?\s*([a-z]{3}\s+\d{1,2},?\s+\d{4})/i,
+                /arrival:?\s*([a-z]{3}\s+\d{1,2},?\s+\d{4})/i,
+                /(\d{1,2}\/\d{1,2}\/\d{4})/g,
+                /(\d{4}-\d{2}-\d{2})/g
+            ];
+            
+            for (const pattern of patterns) {
+                const matches = text.match(pattern);
+                if (matches && matches.length >= 2) {
+                    dates.checkIn = dates.checkIn || matches[0];
+                    dates.checkOut = dates.checkOut || matches[1];
+                    break;
+                }
+            }
+        }
+
+        if (dates.checkIn) dates.checkIn = parseDate(dates.checkIn);
+        if (dates.checkOut) dates.checkOut = parseDate(dates.checkOut);
+
+        return dates;
+    }
+
+    function extractDetailedCosts(element) {
+        const costs = { total: null, perNight: null, baseRate: null, taxes: null, fees: null };
+        const text = element.textContent;
+
+        // Look for various cost components
+        const selectors = {
+            total: ['.total', '.grand-total', '[class*="total"]', '[data-testid*="total"]'],
+            perNight: ['.per-night', '.nightly', '[class*="night"]', '.rate'],
+            baseRate: ['.base-rate', '.room-rate', '[class*="base"]'],
+            taxes: ['.tax', '.taxes', '[class*="tax"]'],
+            fees: ['.fee', '.fees', '[class*="fee"]']
+        };
+
+        Object.keys(selectors).forEach(key => {
+            costs[key] = extractText(element, selectors[key]);
+        });
+
+        // Extract from text patterns
+        const patterns = {
+            total: /total[:\s]*\$?([0-9,]+\.?\d*)/i,
+            perNight: /\$?([0-9,]+\.?\d*)\s*per\s*night/i,
+            baseRate: /room\s*rate[:\s]*\$?([0-9,]+\.?\d*)/i,
+            taxes: /tax[es]*[:\s]*\$?([0-9,]+\.?\d*)/i,
+            fees: /fee[s]*[:\s]*\$?([0-9,]+\.?\d*)/i
+        };
+
+        Object.keys(patterns).forEach(key => {
+            if (!costs[key]) {
+                const match = text.match(patterns[key]);
+                if (match) costs[key] = '$' + match[1];
+            }
+        });
+
+        return costs;
+    }
+
+    function extractDetailedPoints(element) {
+        const text = element.textContent;
+        const patterns = [
+            /(\d+,?\d*)\s*points?\s*used/i,
+            /used[:\s]*(\d+,?\d*)\s*points?/i,
+            /redeem[ed]*[:\s]*(\d+,?\d*)\s*points?/i,
+            /points?\s*redeemed[:\s]*(\d+,?\d*)/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+                return match[1].replace(',', '');
+            }
+        }
+
+        // Look for elements with "points" in class names
+        const pointsElements = element.querySelectorAll('[class*="point"], [data-testid*="point"]');
+        for (const el of pointsElements) {
+            const pointMatch = el.textContent.match(/(\d+,?\d*)/);
+            if (pointMatch) {
+                return pointMatch[1].replace(',', '');
+            }
+        }
+
+        return null;
+    }
+
+    function extractPointsEarned(element) {
+        const text = element.textContent;
+        const patterns = [
+            /earn[ed]*[:\s]*(\d+,?\d*)\s*points?/i,
+            /(\d+,?\d*)\s*points?\s*earned/i,
+            /points?\s*earned[:\s]*(\d+,?\d*)/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+                return match[1].replace(',', '');
+            }
+        }
+        return null;
+    }
+
+    function extractDetailedPromoCode(element) {
+        const text = element.textContent;
+        const patterns = [
+            /promo[tion]*\s*code[:\s]*([A-Z0-9]+)/i,
+            /discount\s*code[:\s]*([A-Z0-9]+)/i,
+            /offer\s*code[:\s]*([A-Z0-9]+)/i,
+            /corporate\s*code[:\s]*([A-Z0-9]+)/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+                return match[1];
+            }
+        }
+
+        // Look for elements with promo-related class names
+        const promoElements = element.querySelectorAll('[class*="promo"], [class*="discount"], [class*="offer"]');
+        for (const el of promoElements) {
+            const codeMatch = el.textContent.match(/([A-Z0-9]{3,})/);
+            if (codeMatch) {
+                return codeMatch[1];
+            }
+        }
+
+        return null;
+    }
+
+    function extractPaymentMethod(element) {
+        const text = element.textContent;
+        const patterns = [
+            /payment[:\s]*([a-z0-9\s*]+\d{4})/i,
+            /card[:\s]*([a-z]+\s*\*+\d{4})/i,
+            /(visa|mastercard|amex|discover)\s*\*+\d{4}/i
+        ];
+
+        for (const pattern of patterns) {
+            const match = text.match(pattern);
+            if (match) {
+                return match[1] || match[0];
+            }
+        }
+        return null;
+    }
+
+    function extractCancellationPolicy(element) {
+        const text = element.textContent.toLowerCase();
+        if (text.includes('free cancellation')) {
+            return 'Free cancellation';
+        } else if (text.includes('non-refundable')) {
+            return 'Non-refundable';
+        } else if (text.includes('cancellation fee')) {
+            return 'Cancellation fee applies';
+        }
+        return null;
+    }
 
     async function extractSingleReservation(element) {
         const reservation = {

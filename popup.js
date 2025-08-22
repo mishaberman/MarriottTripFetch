@@ -222,15 +222,36 @@ document.addEventListener('DOMContentLoaded', function() {
             details.appendChild(dateRange);
         }
 
-        // Details grid
-        const detailItems = [
-            { label: 'Total Cost', value: reservation.totalCost || 'N/A' },
-            { label: 'Nights', value: reservation.nights || 'N/A' },
-            { label: 'Avg/Night', value: reservation.pricePerNight || 'N/A' },
-            { label: 'Points Used', value: reservation.pointsUsed || 'None' },
-            { label: 'Promo Code', value: reservation.promoCode || 'None' },
-            { label: 'Room Type', value: reservation.roomType || 'N/A' }
-        ];
+        // Details grid - show different details for basic vs detailed extractions
+        let detailItems = [];
+        
+        if (reservation.detailedPage) {
+            // Detailed extraction from individual reservation page
+            detailItems = [
+                { label: 'Total Cost', value: reservation.totalCost || 'N/A' },
+                { label: 'Base Rate', value: reservation.baseRate || 'N/A' },
+                { label: 'Taxes', value: reservation.taxes || 'N/A' },
+                { label: 'Fees', value: reservation.fees || 'N/A' },
+                { label: 'Nights', value: reservation.nights || 'N/A' },
+                { label: 'Avg/Night', value: reservation.pricePerNight || 'N/A' },
+                { label: 'Points Used', value: reservation.pointsUsed || 'None' },
+                { label: 'Points Earned', value: reservation.pointsEarned || 'None' },
+                { label: 'Promo Code', value: reservation.promoCode || 'None' },
+                { label: 'Room Type', value: reservation.roomType || 'N/A' },
+                { label: 'Payment', value: reservation.paymentMethod || 'N/A' },
+                { label: 'Cancellation', value: reservation.cancellationPolicy || 'N/A' }
+            ];
+        } else {
+            // Basic extraction from trip list page
+            detailItems = [
+                { label: 'Total Cost', value: reservation.totalCost || 'N/A' },
+                { label: 'Nights', value: reservation.nights || 'N/A' },
+                { label: 'Avg/Night', value: reservation.pricePerNight || 'N/A' },
+                { label: 'Points Used', value: reservation.pointsUsed || 'None' },
+                { label: 'Promo Code', value: reservation.promoCode || 'None' },
+                { label: 'Room Type', value: reservation.roomType || 'N/A' }
+            ];
+        }
 
         detailItems.forEach(item => {
             const detailItem = document.createElement('div');
