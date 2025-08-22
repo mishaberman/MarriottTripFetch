@@ -289,7 +289,13 @@
                 const element = foundElements[i];
                 
                 try {
-                    const reservation = await extractSingleReservation(element);
+                    // Try Marriott-specific extraction first
+                    let reservation = await extractMarriottReservation(element);
+                    
+                    // Fallback to generic extraction
+                    if (!reservation || !reservation.hotelName) {
+                        reservation = await extractSingleReservation(element);
+                    }
                     
                     if (reservation && reservation.hotelName) {
                         if (isUpcomingReservation(reservation)) {
@@ -305,10 +311,157 @@
         return reservations;
     }
 
+    async function extractMarriottReservation(element) {
+        sendDebug('info', 'Attempting Marriott-specific extraction...');
+        
+        const reservation = {
+            hotelName: '',
+            checkInDate: '',
+            checkOutDate: '',
+            confirmationNumber: '',
+            roomType: '',
+            address: '',
+            totalCost: '',
+            viewModifyLink: '',
+            extractedAt: new Date().toISOString(),
+            source: 'Marriott Trips Page',
+            detailedPage: false
+        };
+
+        try {
+            // Extract hotel name from t-subtitle-l element
+            const nameElement = element.querySelector('.t-subtitle-l, [class*="t-subtitle-l"], .name, [class*="name"]');
+            if (nameElement) {
+                reservation.hotelName = nameElement.textContent.trim();
+                sendDebug('info', `Found hotel name: ${reservation.hotelName}`);
+            }
+
+            // Extract dates from t-title-m element
+            const dateElement = element.querySelector('.t-title-m, [class*="t-title-m"], .date, [class*="date"]');
+            if (dateElement) {
+                const dateText = dateElement.textContent.trim();
+                sendDebug('info', `Found date text: ${dateText}`);
+                
+                // Parse date range (common format: "Dec 15 - Dec 18, 2024")
+                const dateMatch = dateText.match(/(\w+\s+\d+)\s*-\s*(\w+\s+\d+)/);
+                if (dateMatch) {
+                    const currentYear = new Date().getFullYear();
+                    reservation.checkInDate = parseDate(`${dateMatch[1]}, ${currentYear}`);
+                    reservation.checkOutDate = parseDate(`${dateMatch[2]}, ${currentYear}`);
+                    
+                    // Calculate nights
+                    const nights = calculateNights(reservation.checkInDate, reservation.checkOutDate);
+                    if (nights > 0) {
+                        reservation.nights = nights;
+                    }
+                }
+            }
+
+            // Extract confirmation number
+            const confirmationSelectors = [
+                '.confirmation', '[class*="confirmation"]',
+                '.conf-number', '[class*="conf"]',
+                '.booking-ref', '[class*="booking"]'
+            ];
+            
+            for (const selector of confirmationSelectors) {
+                const confElement = element.querySelector(selector);
+                if (confElement) {
+                    const confText = confElement.textContent;
+                    const confMatch = confText.match(/[A-Z0-9]{6,}/);
+                    if (confMatch) {
+                        reservation.confirmationNumber = confMatch[0];
+                        sendDebug('info', `Found confirmation: ${reservation.confirmationNumber}`);
+                        break;
+                    }
+                }
+            }
+
+            // Extract view/modify room link
+            const linkSelectors = [
+                'a[href*="modify"]', 'a[href*="view"]', 
+                '.view', '.modify', '.manage',
+                '[class*="view"]', '[class*="modify"]', '[class*="manage"]'
+            ];
+            
+            for (const selector of linkSelectors) {
+                const linkElement = element.querySelector(selector);
+                if (linkElement) {
+                    reservation.viewModifyLink = linkElement.href || linkElement.textContent;
+                    sendDebug('info', `Found view/modify link: ${reservation.viewModifyLink}`);
+                    break;
+                }
+            }
+
+            // Extract address
+            const addressSelectors = [
+                '.address', '[class*="address"]',
+                '.location', '[class*="location"]',
+                '.city', '[class*="city"]'
+            ];
+            
+            for (const selector of addressSelectors) {
+                const addressElement = element.querySelector(selector);
+                if (addressElement) {
+                    reservation.address = addressElement.textContent.trim();
+                    sendDebug('info', `Found address: ${reservation.address}`);
+                    break;
+                }
+            }
+
+            // Extract cost information
+            const costSelectors = [
+                '.cost', '.price', '.total', '.amount',
+                '[class*="cost"]', '[class*="price"]', '[class*="total"]', '[class*="amount"]'
+            ];
+            
+            for (const selector of costSelectors) {
+                const costElement = element.querySelector(selector);
+                if (costElement) {
+                    const costText = costElement.textContent;
+                    const costMatch = costText.match(/\$[\d,]+\.?\d*/);
+                    if (costMatch) {
+                        reservation.totalCost = costMatch[0];
+                        sendDebug('info', `Found cost: ${reservation.totalCost}`);
+                        break;
+                    }
+                }
+            }
+
+            // Calculate price per night if we have total cost and nights
+            if (reservation.totalCost && reservation.nights) {
+                const totalAmount = parseFloat(reservation.totalCost.replace(/[$,]/g, ''));
+                if (!isNaN(totalAmount) && reservation.nights > 0) {
+                    const perNight = totalAmount / reservation.nights;
+                    reservation.pricePerNight = `$${perNight.toFixed(2)}`;
+                }
+            }
+
+            // If we found a hotel name, consider this a valid extraction
+            if (reservation.hotelName) {
+                sendDebug('success', `Marriott extraction successful for ${reservation.hotelName}`);
+                return reservation;
+            } else {
+                sendDebug('warning', 'Marriott extraction failed - no hotel name found');
+                return null;
+            }
+
+        } catch (error) {
+            sendDebug('error', `Marriott extraction error: ${error.message}`);
+            return null;
+        }
+    }
+
     async function findTripPanels() {
         sendDebug('info', 'Looking for clickable trip panels...');
         
+        // Updated selectors to include Marriott-specific ones
         const selectors = [
+            // Marriott-specific trip panel containers
+            '.upcomingtrips .mb-5', '.color-scheme7 .mb-5',
+            '[class*="upcomingtrips"] div', '[class*="color-scheme"] div',
+            
+            // Generic trip selectors
             '[class*="trip"]',
             '[class*="reservation"]', 
             '[class*="booking"]',
@@ -1010,7 +1163,53 @@
     }
 
     async function findBySelectors() {
-        const selectors = [
+        // User-specified Marriott selectors first
+        const marriottSelectors = [
+            // Main upcoming trips container
+            '.upcomingtrips', '[class*="upcomingtrips"]', '.color-scheme7', '.mb-5',
+            
+            // Trip panel elements  
+            '.t-subtitle-l', '.t-title-m', '[class*="t-subtitle"]', '[class*="t-title"]',
+            
+            // Toggle expansion elements
+            '[testid="toggle"]', '[data-testid="toggle"]', '.a-ui-library-Icon',
+            
+            // Generic trip containers
+            '.accordion', '[class*="accordion"]', '.trip', '.reservation'
+        ];
+
+        // Try Marriott-specific selectors first
+        for (const selector of marriottSelectors) {
+            const found = document.querySelectorAll(selector);
+            if (found.length > 0) {
+                sendDebug('success', `Marriott selector "${selector}" found ${found.length} elements`);
+                
+                // If we found upcoming trips containers, look for trip panels within them
+                if (selector.includes('upcoming') || selector.includes('color-scheme')) {
+                    const tripPanels = [];
+                    for (const container of found) {
+                        // Look for trip panels within each container
+                        const panels = container.querySelectorAll('.mb-5, .accordion, [class*="trip"], [class*="reservation"], .card, .panel, div');
+                        panels.forEach(panel => {
+                            const text = panel.textContent.toLowerCase();
+                            if (text.includes('hotel') || text.includes('check') || text.includes('confirmation') || text.includes('nights')) {
+                                tripPanels.push(panel);
+                            }
+                        });
+                    }
+                    if (tripPanels.length > 0) {
+                        sendDebug('success', `Found ${tripPanels.length} trip panels within upcoming trips containers`);
+                        return await handleTripPanelExpansion(tripPanels);
+                    }
+                }
+                
+                // For other selectors, return them directly
+                return Array.from(found);
+            }
+        }
+
+        // Fallback to generic selectors
+        const genericSelectors = [
             '.reservation-card', '.trip-card', '.booking-card',
             '[data-testid*="reservation"]', '[data-testid*="trip"]',
             '.upcoming-stay', '.future-reservation',
@@ -1019,17 +1218,95 @@
             '.stay-card', '.hotel-reservation'
         ];
         
-        let elements = [];
-        for (const selector of selectors) {
+        for (const selector of genericSelectors) {
             const found = document.querySelectorAll(selector);
             if (found.length > 0) {
-                sendDebug('info', `Selector "${selector}" found ${found.length} elements`);
-                elements = Array.from(found);
-                break;
+                sendDebug('info', `Generic selector "${selector}" found ${found.length} elements`);
+                return Array.from(found);
             }
         }
         
-        return elements;
+        return [];
+    }
+
+    async function handleTripPanelExpansion(tripPanels) {
+        sendDebug('info', `Processing ${tripPanels.length} trip panels for expansion...`);
+        const expandedPanels = [];
+        
+        for (let i = 0; i < tripPanels.length; i++) {
+            const panel = tripPanels[i];
+            sendDebug('info', `Processing trip panel ${i + 1}/${tripPanels.length}`);
+            
+            try {
+                // Look for toggle button within this panel
+                const toggleSelectors = [
+                    '.a-ui-library-Icon[testid="toggle"]',
+                    '[data-testid="toggle"]', 
+                    '[testid="toggle"]',
+                    '.icon.arrow',
+                    '[class*="arrow"]',
+                    'button[class*="toggle"]',
+                    'button[class*="expand"]'
+                ];
+                
+                let toggleButton = null;
+                for (const selector of toggleSelectors) {
+                    toggleButton = panel.querySelector(selector);
+                    if (toggleButton) {
+                        sendDebug('info', `Found toggle button with selector: ${selector}`);
+                        break;
+                    }
+                }
+                
+                if (toggleButton) {
+                    // Check if panel is already expanded
+                    const isExpanded = toggleButton.classList.contains('arrow-up') || 
+                                     toggleButton.getAttribute('aria-expanded') === 'true' ||
+                                     panel.querySelector('.view, .modify, .cancel, [href*="modify"]');
+                    
+                    if (!isExpanded) {
+                        sendDebug('info', `Expanding trip panel ${i + 1} by clicking toggle...`);
+                        toggleButton.click();
+                        
+                        // Wait for expansion
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        
+                        // Wait for content to load
+                        await waitForExpansionContent(panel);
+                    } else {
+                        sendDebug('info', `Trip panel ${i + 1} already expanded`);
+                    }
+                } else {
+                    sendDebug('warning', `No toggle button found in panel ${i + 1}`);
+                }
+                
+                expandedPanels.push(panel);
+            } catch (error) {
+                sendDebug('error', `Error processing panel ${i + 1}: ${error.message}`);
+                expandedPanels.push(panel); // Include it anyway
+            }
+        }
+        
+        sendDebug('success', `Processed ${expandedPanels.length} trip panels`);
+        return expandedPanels;
+    }
+
+    async function waitForExpansionContent(panel) {
+        sendDebug('info', 'Waiting for expansion content to load...');
+        
+        // Wait up to 5 seconds for expansion content to appear
+        for (let i = 0; i < 10; i++) {
+            const hasContent = panel.querySelector('.view, .modify, .cancel, [href*="modify"], [href*="view"], .confirmation, [class*="confirmation"]');
+            
+            if (hasContent) {
+                sendDebug('success', `Expansion content appeared after ${i * 500}ms`);
+                return;
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        sendDebug('warning', 'Expansion content not detected after 5 seconds, proceeding anyway');
     }
 
     async function findByTextContent() {
