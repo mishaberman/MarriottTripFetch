@@ -20,20 +20,20 @@
         try {
             sendProgress(5, 'Checking login status...');
             
-            console.log('🚀 Starting reservation extraction...');
-            console.log('📍 Current URL:', window.location.href);
-            console.log('🌐 Domain:', window.location.hostname);
+            sendDebug('info', '🚀 Starting reservation extraction...');
+            sendDebug('info', `📍 Current URL: ${window.location.href}`);
+            sendDebug('info', `🌐 Domain: ${window.location.hostname}`);
             
             // Check if user is logged in
             const loginStatus = isLoggedIn();
-            console.log('🔑 Login status result:', loginStatus);
+            sendDebug('info', `🔑 Login status result: ${loginStatus}`);
             
             if (!loginStatus) {
-                console.log('❌ Login check failed - throwing error');
+                sendDebug('error', '❌ Login check failed - throwing error');
                 throw new Error('Please log in to your Marriott account first. Check browser console for debugging details.');
             }
             
-            console.log('✅ Login check passed - continuing extraction');
+            sendDebug('success', '✅ Login check passed - continuing extraction');
 
             sendProgress(15, 'Navigating to My Trips page...');
             sendDebug('info', 'Automatically navigating to trips page...');
@@ -46,12 +46,19 @@
             // Debug: Check what's actually on the page
             sendDebug('info', `Page title: ${document.title}`);
             sendDebug('info', `Page URL: ${window.location.href}`);
+            sendDebug('info', `Body text length: ${document.body.textContent.length} characters`);
             
-            sendProgress(60, 'Extracting reservation details...');
+            sendProgress(50, 'Analyzing page content...');
             
             // Extract reservation data using found elements
             const foundElements = await findAndAnalyzeReservations();
+            
+            sendProgress(60, 'Extracting reservation details...');
+            sendDebug('info', 'Starting detailed extraction process...');
+            
             const reservations = await extractReservationDataFromElements(foundElements);
+            
+            sendDebug('info', `Extraction completed, found ${reservations.length} reservations`);
             
             sendProgress(90, 'Saving extracted data...');
             
@@ -67,13 +74,15 @@
             });
 
         } catch (error) {
-            console.error('Extraction error:', error);
+            sendDebug('error', `Extraction failed: ${error.message}`);
+            console.error('🏨 MARRIOTT EXTRACTOR - Extraction error:', error);
             chrome.runtime.sendMessage({
                 action: 'extractionError',
                 error: error.message
             });
         } finally {
             extractionInProgress = false;
+            sendDebug('info', 'Extraction process completed');
         }
     }
 
@@ -106,7 +115,7 @@
             '.account-signin-out' // Marriott specific
         ];
 
-        console.log('🔍 Checking login status...');
+        sendDebug('info', '🔍 Checking login status...');
         
         // Debug: log all potential login elements found
         let foundElements = [];
@@ -122,9 +131,9 @@
         });
         
         if (foundElements.length > 0) {
-            console.log('✅ Found potential login indicators:', foundElements);
+            sendDebug('success', `✅ Found ${foundElements.length} potential login indicators`);
         } else {
-            console.log('❌ No login indicators found');
+            sendDebug('error', '❌ No login indicators found');
             
             // Additional debugging - check for any text that might indicate login
             const bodyText = document.body.textContent.toLowerCase();
@@ -132,13 +141,13 @@
             const foundKeywords = loginKeywords.filter(keyword => bodyText.includes(keyword));
             
             if (foundKeywords.length > 0) {
-                console.log('📝 Found login-related text:', foundKeywords);
+                sendDebug('info', `📝 Found login-related text: ${foundKeywords.join(', ')}`);
             }
             
             // Check for text-based indicators
             const textIndicators = checkTextBasedLogin();
             if (textIndicators.length > 0) {
-                console.log('📝 Found text-based login indicators:', textIndicators);
+                sendDebug('success', `📝 Found ${textIndicators.length} text-based login indicators`);
                 return true; // If we find text indicators, consider logged in
             }
             
@@ -152,12 +161,12 @@
                 btn.textContent.toLowerCase().includes('login')
             );
             
-            console.log('🔐 Sign in links found:', signInLinks.length);
-            console.log('🔐 Sign in buttons found:', signInButtons.length);
+            sendDebug('info', `🔐 Sign in links found: ${signInLinks.length}`);
+            sendDebug('info', `🔐 Sign in buttons found: ${signInButtons.length}`);
             
             // If no sign-in buttons/links found, might be logged in
             if (signInLinks.length === 0 && signInButtons.length === 0) {
-                console.log('🤔 No sign-in elements found - might be logged in');
+                sendDebug('info', '🤔 No sign-in elements found - assuming logged in');
                 return true;
             }
         }
@@ -198,8 +207,16 @@
         sendDebug('info', `Current URL: ${currentUrl}`);
         sendDebug('info', `Target URL: ${tripsUrl}`);
         
-        // Always navigate to the trips page to ensure we're in the right place
-        if (currentUrl !== tripsUrl) {
+        // Check if we're already on the trips page
+        if (currentUrl.includes('findReservationList.mi')) {
+            sendDebug('info', 'Already on trips page, skipping navigation');
+            sendProgress(30, 'Already on trips page, waiting for content...');
+            
+            // Wait for content to load without refreshing
+            await waitForTripContent();
+            
+            sendDebug('success', 'Trips page content loaded');
+        } else {
             sendDebug('info', 'Navigating to trips page...');
             sendProgress(20, 'Loading My Trips page...');
             
@@ -207,22 +224,34 @@
             
             // Wait for navigation and page load
             await waitForPageLoad();
-            await new Promise(resolve => setTimeout(resolve, 3000)); // Extra wait for page content
+            sendDebug('info', 'Page loaded, waiting for trip content...');
             
-            sendDebug('success', `Successfully navigated to trips page`);
-        } else {
-            sendDebug('info', 'Already on trips page, refreshing...');
-            sendProgress(25, 'Refreshing trips page...');
+            await waitForTripContent();
             
-            // Refresh the page to get latest data
-            window.location.reload();
-            await waitForPageLoad();
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            
-            sendDebug('success', 'Page refreshed successfully');
+            sendDebug('success', 'Successfully navigated and loaded trips page');
         }
         
-        sendProgress(35, 'Trips page loaded, scanning for reservations...');
+        sendProgress(35, 'Trips page ready, scanning for reservations...');
+    }
+
+    async function waitForTripContent() {
+        sendDebug('info', 'Waiting for trip content to load...');
+        
+        // Wait up to 10 seconds for trip content to appear
+        for (let i = 0; i < 20; i++) {
+            const tripElements = document.querySelectorAll('[class*="trip"], [class*="reservation"], [class*="booking"], .accordion');
+            const hasContent = tripElements.length > 0 || document.body.textContent.includes('reservation') || document.body.textContent.includes('trip');
+            
+            if (hasContent) {
+                sendDebug('success', `Trip content found after ${i * 500}ms`);
+                return;
+            }
+            
+            sendDebug('info', `Waiting for content... (${i + 1}/20)`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+        
+        sendDebug('warning', 'Trip content not found after 10 seconds, proceeding anyway');
     }
 
     async function extractReservationDataFromElements(foundElements) {
@@ -926,7 +955,9 @@
     }
 
     function sendDebug(type, message) {
-        console.log(`🔧 [${type.toUpperCase()}] ${message}`);
+        const timestamp = new Date().toLocaleTimeString();
+        const logMessage = `🏨 MARRIOTT EXTRACTOR [${timestamp}] [${type.toUpperCase()}] ${message}`;
+        console.log(logMessage);
         chrome.runtime.sendMessage({
             action: 'debug',
             type: type,
