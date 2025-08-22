@@ -8,10 +8,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Forward progress messages from content script to popup
     if (message.action === 'progress' || 
         message.action === 'extractionComplete' || 
-        message.action === 'extractionError') {
+        message.action === 'extractionError' ||
+        message.action === 'debug') {
         
         // Broadcast to all popup instances
-        chrome.runtime.sendMessage(message);
+        chrome.runtime.sendMessage(message).catch(() => {
+            // Ignore errors if no popup is listening
+        });
+    }
+    
+    // Send response to avoid connection errors
+    if (sendResponse) {
+        sendResponse({ received: true });
     }
 });
 
@@ -25,8 +33,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         chrome.scripting.executeScript({
             target: { tabId: tabId },
             files: ['content.js']
-        }).catch(() => {
+        }).catch((error) => {
             // Content script might already be injected - ignore error
+            console.log('Content script injection skipped:', error.message);
         });
     }
 });

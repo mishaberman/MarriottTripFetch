@@ -1163,69 +1163,95 @@
     }
 
     async function findBySelectors() {
-        // User-specified Marriott selectors first
-        const marriottSelectors = [
-            // Main upcoming trips container
-            '.upcomingtrips', '[class*="upcomingtrips"]', '.color-scheme7', '.mb-5',
+        sendDebug('info', 'Searching for individual trip containers...');
+        
+        // Strategy 1: Look for accordion containers with multiple trips
+        const accordionContainers = document.querySelectorAll('.accordion, [class*="accordion"], .gOEOgy');
+        if (accordionContainers.length > 0) {
+            sendDebug('info', `Found ${accordionContainers.length} accordion containers`);
             
-            // Trip panel elements  
-            '.t-subtitle-l', '.t-title-m', '[class*="t-subtitle"]', '[class*="t-title"]',
-            
-            // Toggle expansion elements
-            '[testid="toggle"]', '[data-testid="toggle"]', '.a-ui-library-Icon',
-            
-            // Generic trip containers
-            '.accordion', '[class*="accordion"]', '.trip', '.reservation'
-        ];
-
-        // Try Marriott-specific selectors first
-        for (const selector of marriottSelectors) {
-            const found = document.querySelectorAll(selector);
-            if (found.length > 0) {
-                sendDebug('success', `Marriott selector "${selector}" found ${found.length} elements`);
+            const individualTrips = [];
+            for (const container of accordionContainers) {
+                // Look for individual trip sections within accordions
+                const tripSections = container.querySelectorAll('.accordion__container, .accordion__item, [class*="accordion__"]');
                 
-                // If we found upcoming trips containers, look for trip panels within them
-                if (selector.includes('upcoming') || selector.includes('color-scheme')) {
-                    const tripPanels = [];
-                    for (const container of found) {
-                        // Look for trip panels within each container
-                        const panels = container.querySelectorAll('.mb-5, .accordion, [class*="trip"], [class*="reservation"], .card, .panel, div');
-                        panels.forEach(panel => {
-                            const text = panel.textContent.toLowerCase();
-                            if (text.includes('hotel') || text.includes('check') || text.includes('confirmation') || text.includes('nights')) {
-                                tripPanels.push(panel);
-                            }
-                        });
+                tripSections.forEach((section, index) => {
+                    const text = section.textContent.toLowerCase();
+                    if (text.includes('hotel') || text.includes('marriott') || text.includes('check') || text.includes('night')) {
+                        sendDebug('info', `Found trip section ${index + 1} in accordion: ${text.substring(0, 100)}...`);
+                        individualTrips.push(section);
                     }
-                    if (tripPanels.length > 0) {
-                        sendDebug('success', `Found ${tripPanels.length} trip panels within upcoming trips containers`);
-                        return await handleTripPanelExpansion(tripPanels);
-                    }
+                });
+            }
+            
+            if (individualTrips.length > 0) {
+                sendDebug('success', `Found ${individualTrips.length} individual trip sections in accordions`);
+                return individualTrips;
+            }
+        }
+
+        // Strategy 2: Look for cards or panels that contain hotel/trip data
+        const cardSelectors = [
+            '.card', '.panel', '.mb-5', '[class*="card"]', '[class*="panel"]'
+        ];
+        
+        for (const selector of cardSelectors) {
+            const cards = document.querySelectorAll(selector);
+            const tripCards = [];
+            
+            cards.forEach((card, index) => {
+                const text = card.textContent.toLowerCase();
+                // Look for cards that contain hotel/trip information but aren't too large (like entire pages)
+                if ((text.includes('hotel') || text.includes('marriott') || text.includes('check') || text.includes('night')) && 
+                    text.length < 2000 && text.length > 50) {
+                    
+                    sendDebug('info', `Found trip card ${index + 1}: ${text.substring(0, 100)}...`);
+                    tripCards.push(card);
                 }
-                
-                // For other selectors, return them directly
-                return Array.from(found);
+            });
+            
+            if (tripCards.length > 1) { // Only return if we found multiple trip cards
+                sendDebug('success', `Found ${tripCards.length} individual trip cards with selector "${selector}"`);
+                return tripCards;
             }
         }
 
-        // Fallback to generic selectors
-        const genericSelectors = [
-            '.reservation-card', '.trip-card', '.booking-card',
-            '[data-testid*="reservation"]', '[data-testid*="trip"]',
-            '.upcoming-stay', '.future-reservation',
-            '.reservation', '.trip', '.booking',
-            '[class*="reservation"]', '[class*="trip"]', '[class*="booking"]',
-            '.stay-card', '.hotel-reservation'
-        ];
+        // Strategy 3: Look for div elements that might contain trip data
+        sendDebug('info', 'Searching all divs for trip patterns...');
+        const allDivs = document.querySelectorAll('div');
+        const tripDivs = [];
         
-        for (const selector of genericSelectors) {
-            const found = document.querySelectorAll(selector);
-            if (found.length > 0) {
-                sendDebug('info', `Generic selector "${selector}" found ${found.length} elements`);
-                return Array.from(found);
+        allDivs.forEach((div, index) => {
+            const text = div.textContent.trim();
+            
+            // Look for divs that contain date patterns and hotel names
+            const hasDatePattern = /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}\s*-\s*\d{1,2}\b/i.test(text);
+            const hasHotelName = /\b(hotel|marriott|inn|resort|suites|residence|aloft|moxy|fairfield)\b/i.test(text);
+            
+            // Must be reasonably sized - not too small or too large
+            if (hasDatePattern && hasHotelName && text.length > 50 && text.length < 1000) {
+                sendDebug('info', `Found potential trip div ${tripDivs.length + 1}: ${text.substring(0, 150)}...`);
+                tripDivs.push(div);
             }
-        }
+        });
         
+        // Remove duplicates (child elements contained in parent elements)
+        const uniqueTripDivs = tripDivs.filter((div, index) => {
+            // Check if this div is contained within any previous div
+            for (let i = 0; i < index; i++) {
+                if (tripDivs[i].contains(div)) {
+                    return false; // This div is a child of a previous one, exclude it
+                }
+            }
+            return true;
+        });
+        
+        if (uniqueTripDivs.length > 0) {
+            sendDebug('success', `Found ${uniqueTripDivs.length} unique trip divs (filtered from ${tripDivs.length} total)`);
+            return uniqueTripDivs;
+        }
+
+        sendDebug('warning', 'No individual trip containers found with any strategy');
         return [];
     }
 
