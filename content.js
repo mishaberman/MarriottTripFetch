@@ -1177,7 +1177,10 @@
                 
                 tripSections.forEach((section, index) => {
                     const text = section.textContent.toLowerCase();
-                    if (text.includes('hotel') || text.includes('marriott') || text.includes('check') || text.includes('night')) {
+                    // Look for generic trip indicators that would work for any user
+                    if ((text.includes('check') || text.includes('night') || text.includes('reservation') || 
+                         text.includes('confirm') || text.includes('booking')) && 
+                        text.length > 100 && text.length < 2000) {
                         sendDebug('info', `Found trip section ${index + 1} in accordion: ${text.substring(0, 100)}...`);
                         individualTrips.push(section);
                     }
@@ -1201,9 +1204,12 @@
             
             cards.forEach((card, index) => {
                 const text = card.textContent.toLowerCase();
-                // Look for cards that contain hotel/trip information but aren't too large (like entire pages)
-                if ((text.includes('hotel') || text.includes('marriott') || text.includes('check') || text.includes('night')) && 
-                    text.length < 2000 && text.length > 50) {
+                // Look for cards that contain generic trip information but aren't too large (like entire pages)
+                if ((text.includes('check') || text.includes('night') || text.includes('reservation') || 
+                     text.includes('confirm') || text.includes('booking') ||
+                     /\$\d+/.test(text) || // Contains money amounts
+                     /\d{1,2}[\/\-]\d{1,2}/.test(text)) && // Contains date patterns
+                    text.length < 2000 && text.length > 100) {
                     
                     sendDebug('info', `Found trip card ${index + 1}: ${text.substring(0, 100)}...`);
                     tripCards.push(card);
@@ -1216,43 +1222,121 @@
             }
         }
 
-        // Strategy 3: Look for div elements that might contain trip data
-        sendDebug('info', 'Searching all divs for trip patterns...');
+        // Strategy 3: Look for sibling elements with similar structure (trip containers)
+        sendDebug('info', 'Searching for sibling trip containers...');
         const allDivs = document.querySelectorAll('div');
-        const tripDivs = [];
+        const potentialTripContainers = [];
         
-        allDivs.forEach((div, index) => {
+        allDivs.forEach((div) => {
             const text = div.textContent.trim();
             
-            // Look for divs that contain date patterns and hotel names
-            const hasDatePattern = /\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\s+\d{1,2}\s*-\s*\d{1,2}\b/i.test(text);
-            const hasHotelName = /\b(hotel|marriott|inn|resort|suites|residence|aloft|moxy|fairfield)\b/i.test(text);
+            // Look for elements that contain trip indicators but aren't too large
+            const hasTripIndicators = (
+                text.includes('check') || 
+                text.includes('night') || 
+                text.includes('reservation') || 
+                text.includes('booking') ||
+                text.includes('confirm') ||
+                /\$\d+/.test(text) || // Contains money amounts
+                /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/.test(text) || // Contains dates
+                /\b\d{1,2}\s*-\s*\d{1,2}\b/.test(text) // Date ranges like "15 - 18"
+            );
             
-            // Must be reasonably sized - not too small or too large
-            if (hasDatePattern && hasHotelName && text.length > 50 && text.length < 1000) {
-                sendDebug('info', `Found potential trip div ${tripDivs.length + 1}: ${text.substring(0, 150)}...`);
-                tripDivs.push(div);
+            // Must be reasonably sized and contain meaningful content
+            if (hasTripIndicators && text.length > 100 && text.length < 2000 && div.offsetHeight > 0) {
+                potentialTripContainers.push(div);
             }
         });
         
-        // Remove duplicates (child elements contained in parent elements)
-        const uniqueTripDivs = tripDivs.filter((div, index) => {
-            // Check if this div is contained within any previous div
-            for (let i = 0; i < index; i++) {
-                if (tripDivs[i].contains(div)) {
-                    return false; // This div is a child of a previous one, exclude it
-                }
-            }
-            return true;
-        });
+        // Group elements by similar structure and parent containers
+        const groupedContainers = groupSimilarElements(potentialTripContainers);
         
-        if (uniqueTripDivs.length > 0) {
-            sendDebug('success', `Found ${uniqueTripDivs.length} unique trip divs (filtered from ${tripDivs.length} total)`);
-            return uniqueTripDivs;
+        if (groupedContainers.length > 1) {
+            sendDebug('success', `Found ${groupedContainers.length} similar trip containers`);
+            return groupedContainers;
         }
 
         sendDebug('warning', 'No individual trip containers found with any strategy');
         return [];
+    }
+
+    function groupSimilarElements(elements) {
+        if (elements.length < 2) return elements;
+        
+        // Find elements that have similar structure (same parent or similar siblings)
+        const groups = [];
+        const processed = new Set();
+        
+        elements.forEach((element, index) => {
+            if (processed.has(element)) return;
+            
+            const siblings = [];
+            const parent = element.parentElement;
+            
+            if (parent) {
+                // Look for similar elements within the same parent
+                elements.forEach((otherElement, otherIndex) => {
+                    if (otherIndex !== index && 
+                        !processed.has(otherElement) && 
+                        otherElement.parentElement === parent) {
+                        
+                        // Check if elements have similar structure
+                        const similarity = calculateElementSimilarity(element, otherElement);
+                        if (similarity > 0.3) { // 30% similarity threshold
+                            siblings.push(otherElement);
+                            processed.add(otherElement);
+                        }
+                    }
+                });
+            }
+            
+            if (siblings.length > 0) {
+                siblings.push(element);
+                processed.add(element);
+                groups.push(...siblings);
+            }
+        });
+        
+        // If grouping didn't work well, return elements that look like individual trip containers
+        if (groups.length < 2) {
+            return elements.filter(el => {
+                const text = el.textContent;
+                // Look for elements that seem to be individual trip containers
+                return text.length > 200 && text.length < 1500 && 
+                       (text.includes('check') || text.includes('night') || text.includes('confirm'));
+            }).slice(0, 20); // Limit to reasonable number
+        }
+        
+        return groups;
+    }
+
+    function calculateElementSimilarity(el1, el2) {
+        // Compare elements based on their structure
+        const tag1 = el1.tagName;
+        const tag2 = el2.tagName;
+        
+        const classes1 = Array.from(el1.classList).sort().join(' ');
+        const classes2 = Array.from(el2.classList).sort().join(' ');
+        
+        const children1 = el1.children.length;
+        const children2 = el2.children.length;
+        
+        let similarity = 0;
+        
+        // Same tag name
+        if (tag1 === tag2) similarity += 0.3;
+        
+        // Similar class structure
+        if (classes1 === classes2) similarity += 0.4;
+        else if (classes1 && classes2) {
+            const commonClasses = classes1.split(' ').filter(c => classes2.includes(c));
+            similarity += (commonClasses.length / Math.max(classes1.split(' ').length, classes2.split(' ').length)) * 0.4;
+        }
+        
+        // Similar number of children
+        if (Math.abs(children1 - children2) <= 2) similarity += 0.3;
+        
+        return similarity;
     }
 
     async function handleTripPanelExpansion(tripPanels) {
