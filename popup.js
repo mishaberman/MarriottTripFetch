@@ -2,11 +2,14 @@ document.addEventListener('DOMContentLoaded', function() {
     const extractBtn = document.getElementById('extractBtn');
     const clearBtn = document.getElementById('clearBtn');
     const exportBtn = document.getElementById('exportBtn');
+    const clearDebugBtn = document.getElementById('clearDebugBtn');
     const statusEl = document.getElementById('status');
     const progressSection = document.getElementById('progressSection');
     const progressFill = document.getElementById('progressFill');
     const progressText = document.getElementById('progressText');
     const reservationsList = document.getElementById('reservationsList');
+    const debugSection = document.getElementById('debugSection');
+    const debugLog = document.getElementById('debugLog');
 
     // Load existing reservations on popup open
     loadReservations();
@@ -75,6 +78,12 @@ document.addEventListener('DOMContentLoaded', function() {
         URL.revokeObjectURL(url);
     });
 
+    // Clear debug log button
+    clearDebugBtn.addEventListener('click', function() {
+        debugLog.innerHTML = '';
+        debugSection.style.display = 'none';
+    });
+
     // Listen for messages from content script
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         switch (message.action) {
@@ -87,6 +96,9 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'extractionError':
                 showError(message.error);
                 resetUI();
+                break;
+            case 'debug':
+                addDebugEntry(message.type || 'info', message.message);
                 break;
         }
     });
@@ -253,6 +265,23 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         } catch (error) {
             return dateString;
+        }
+    }
+
+    function addDebugEntry(type, message) {
+        debugSection.style.display = 'block';
+        
+        const entry = document.createElement('div');
+        entry.className = `debug-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        
+        debugLog.appendChild(entry);
+        debugLog.scrollTop = debugLog.scrollHeight;
+        
+        // Limit to 100 entries
+        const entries = debugLog.children;
+        if (entries.length > 100) {
+            debugLog.removeChild(entries[0]);
         }
     }
 });
