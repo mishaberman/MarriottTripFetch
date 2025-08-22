@@ -18,7 +18,7 @@
         extractionInProgress = true;
         
         try {
-            sendProgress(10, 'Checking login status...');
+            sendProgress(5, 'Checking login status...');
             
             console.log('🚀 Starting reservation extraction...');
             console.log('📍 Current URL:', window.location.href);
@@ -35,10 +35,11 @@
             
             console.log('✅ Login check passed - continuing extraction');
 
-            sendProgress(20, 'Navigating to reservations...');
+            sendProgress(15, 'Navigating to My Trips page...');
+            sendDebug('info', 'Automatically navigating to trips page...');
             
-            // Navigate to reservations page if not already there
-            await navigateToReservations();
+            // Always navigate to the trips page first
+            await navigateToTripsPage();
             
             sendProgress(40, 'Scanning for upcoming reservations...');
             
@@ -190,33 +191,38 @@
         return indicators;
     }
 
-    async function navigateToReservations() {
+    async function navigateToTripsPage() {
+        const tripsUrl = 'https://www.marriott.com/loyalty/findReservationList.mi';
         const currentUrl = window.location.href;
         
-        // If not on reservations page, try to navigate there
-        if (!currentUrl.includes('reservation') && !currentUrl.includes('trip')) {
-            // Look for reservations/trips link
-            const reservationLinks = [
-                'a[href*="reservation"]',
-                'a[href*="trip"]',
-                'a[href*="booking"]',
-                'a:contains("Reservations")',
-                'a:contains("My Trips")',
-                'a:contains("Bookings")'
-            ];
-
-            for (const selector of reservationLinks) {
-                const link = document.querySelector(selector);
-                if (link) {
-                    link.click();
-                    await new Promise(resolve => setTimeout(resolve, 2000));
-                    break;
-                }
-            }
+        sendDebug('info', `Current URL: ${currentUrl}`);
+        sendDebug('info', `Target URL: ${tripsUrl}`);
+        
+        // Always navigate to the trips page to ensure we're in the right place
+        if (currentUrl !== tripsUrl) {
+            sendDebug('info', 'Navigating to trips page...');
+            sendProgress(20, 'Loading My Trips page...');
+            
+            window.location.href = tripsUrl;
+            
+            // Wait for navigation and page load
+            await waitForPageLoad();
+            await new Promise(resolve => setTimeout(resolve, 3000)); // Extra wait for page content
+            
+            sendDebug('success', `Successfully navigated to trips page`);
+        } else {
+            sendDebug('info', 'Already on trips page, refreshing...');
+            sendProgress(25, 'Refreshing trips page...');
+            
+            // Refresh the page to get latest data
+            window.location.reload();
+            await waitForPageLoad();
+            await new Promise(resolve => setTimeout(resolve, 3000));
+            
+            sendDebug('success', 'Page refreshed successfully');
         }
-
-        // Wait for navigation to complete
-        await waitForPageLoad();
+        
+        sendProgress(35, 'Trips page loaded, scanning for reservations...');
     }
 
     async function extractReservationDataFromElements(foundElements) {

@@ -11,8 +11,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const debugSection = document.getElementById('debugSection');
     const debugLog = document.getElementById('debugLog');
 
-    // Load existing reservations on popup open
-    loadReservations();
+    // Load existing reservations on popup open (async to not block UI)
+    setTimeout(() => loadReservations(), 100);
 
     // Extract reservations button
     extractBtn.addEventListener('click', async function() {
@@ -24,6 +24,12 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!currentTab.url.includes('marriott.com')) {
                 showError('Please navigate to marriott.com first and log into your account.');
                 return;
+            }
+            
+            // Show helpful message if not on the right page
+            if (!currentTab.url.includes('findReservationList') && !currentTab.url.includes('reservation')) {
+                showError('Extension will automatically navigate to your trips page. Click Extract to continue.');
+                // Don't return - let the extraction proceed
             }
 
             extractBtn.disabled = true;
@@ -156,8 +162,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function loadReservations() {
-        const reservations = await getStoredReservations();
-        displayReservations(reservations);
+        try {
+            const reservations = await getStoredReservations();
+            displayReservations(reservations);
+        } catch (error) {
+            console.log('Error loading reservations:', error);
+            // Fail silently for faster popup loading
+        }
     }
 
     function getStoredReservations() {

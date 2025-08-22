@@ -26,7 +26,18 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             target: { tabId: tabId },
             files: ['content.js']
         }).catch(() => {
-            // Content script might already be injected
+            // Content script might already be injected - ignore error
         });
     }
+});
+
+// Clear any caching to improve popup loading speed
+chrome.runtime.onStartup.addListener(() => {
+    // Clear any cached data that might slow down popup
+    chrome.storage.local.get(null, (items) => {
+        if (Object.keys(items).length > 100) {
+            // If too much cached data, clear old items
+            chrome.storage.local.clear();
+        }
+    });
 });
